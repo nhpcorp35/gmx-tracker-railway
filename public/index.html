@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>GMX Position Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f12;--s1:#161a1f;--s2:#1e242b;
+  --b:rgba(255,255,255,0.07);--b2:rgba(255,255,255,0.13);
+  --tx:#e8eaed;--mu:#6b7280;
+  --gr:#10b981;--gr-bg:rgba(16,185,129,0.1);
+  --re:#ef4444;--re-bg:rgba(239,68,68,0.1);
+  --am:#f59e0b;--am-bg:rgba(245,158,11,0.1);
+  --bl:#3b82f6;--bl-bg:rgba(59,130,246,0.1);
+  --r:8px;--rl:12px;
+  --mono:'SF Mono','Fira Code',Consolas,monospace;
+}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;min-height:100vh}
+.wrap{max-width:1200px;margin:0 auto;padding:2rem 1.5rem}
+header{margin-bottom:1.75rem}
+.hrow{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.logo{width:28px;height:28px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;flex-shrink:0}
+h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.sub{font-size:12px;color:var(--mu)}
+.input-row{display:flex;gap:8px;margin-bottom:1.1rem;flex-wrap:wrap}
+input[type=text]{flex:1;min-width:240px;background:var(--s1);border:1px solid var(--b2);border-radius:var(--r);padding:9px 14px;color:var(--tx);font-family:var(--mono);font-size:13px;outline:none;transition:border-color .15s}
+input[type=text]:focus{border-color:var(--bl)}
+input[type=text]::placeholder{color:var(--mu)}
+button{background:var(--bl);color:#fff;border:none;border-radius:var(--r);padding:9px 16px;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap}
+button:hover{opacity:.88}button:active{transform:scale(.98)}button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn2{background:var(--s2);color:var(--tx);border:1px solid var(--b2)}
+.tabs{display:flex;gap:6px;margin-bottom:1.1rem;flex-wrap:wrap;align-items:center}
+.tab{padding:5px 14px;font-size:12px;font-weight:500;border-radius:20px;border:1px solid var(--b2);background:transparent;color:var(--mu);cursor:pointer;transition:all .15s}
+.tab.active{background:var(--s2);color:var(--tx);border-color:rgba(255,255,255,.25)}
+.tsep{width:1px;height:20px;background:var(--b2);margin:0 2px}
+.sbar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mu);margin-bottom:1.1rem;min-height:22px}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-live{background:var(--gr);box-shadow:0 0 5px var(--gr)}
+.dot-err{background:var(--re)}
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid var(--b2);border-top-color:var(--bl);animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.cd{font-size:11px;background:var(--s2);border:1px solid var(--b2);border-radius:20px;padding:2px 9px;font-family:var(--mono);color:var(--mu)}
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.4rem}
+.mc{background:var(--s1);border:1px solid var(--b);border-radius:var(--rl);padding:14px 16px}
+.mc-label{font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.mc-val{font-size:22px;font-weight:600;font-family:var(--mono);letter-spacing:-.02em}
+.mc-val.pos{color:var(--gr)}.mc-val.neg{color:var(--re)}.mc-val.neu{color:var(--mu)}
+/* Cards */
+.card{background:var(--s1);border:1px solid var(--b);border-radius:var(--rl);margin-bottom:1.4rem;overflow:hidden}
+.card-head{padding:11px 18px;border-bottom:1px solid var(--b);font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;justify-content:space-between}
+.chart-body{padding:16px 18px}
+.chart-wrap{position:relative;height:150px}
+/* Tables */
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;font-weight:500;padding:9px 14px;text-align:left;white-space:nowrap}
+th:not(:first-child){text-align:right}
+td{padding:10px 14px;border-top:1px solid var(--b);vertical-align:middle}
+td:not(:first-child){text-align:right;font-family:var(--mono);font-size:12px}
+tr:hover td{background:var(--s2)}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;letter-spacing:.04em}
+.long{background:var(--gr-bg);color:var(--gr)}.short{background:var(--re-bg);color:var(--re)}
+.tp-badge{background:var(--gr-bg);color:var(--gr)}.sl-badge{background:var(--re-bg);color:var(--re)}
+.vtag{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:middle;background:var(--s2);color:var(--mu);font-family:var(--mono)}
+.pname{font-weight:500;font-size:13px}.psub{font-size:11px;color:var(--mu);margin-top:2px}
+.p-pos{color:var(--gr);font-weight:600}.p-neg{color:var(--re);font-weight:600}.p-neu{color:var(--mu)}
+.liqw{color:var(--am)!important}
+.empty{padding:2.5rem 1rem;text-align:center;color:var(--mu);font-size:13px}
+/* Errors/debug */
+.errbox{background:var(--re-bg);border:1px solid rgba(239,68,68,.2);border-radius:var(--r);padding:10px 14px;font-size:12px;color:#fca5a5;font-family:var(--mono);margin-bottom:1rem;white-space:pre-wrap;display:none}
+.dbgbox{background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:10px 14px;font-size:11px;color:var(--mu);font-family:var(--mono);margin-bottom:1rem;white-space:pre-wrap;max-height:160px;overflow:auto;display:none}
+footer{font-size:11px;color:var(--mu);padding-top:1rem;border-top:1px solid var(--b)}
+footer a{color:var(--bl);text-decoration:none}
+footer a:hover{text-decoration:underline}
+.fee-neg{color:var(--re)}.fee-pos{color:var(--gr)}.fee-neu{color:var(--mu)}
+.link-btn{font-size:11px;padding:3px 8px;border-radius:4px;background:var(--bl-bg);color:var(--bl);border:none;cursor:pointer;text-decoration:none;display:inline-block}
+.link-btn:hover{opacity:.8}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <div class="hrow"><div class="logo">G</div><h1>GMX Position Tracker</h1></div>
+  <p class="sub">Live positions, fees, and TP/SL orders via Arbitrum RPC</p>
+</header>
+
+<div class="input-row">
+  <input id="addr" type="text" placeholder="0x… wallet address" spellcheck="false" />
+  <button id="fetchBtn" onclick="doFetch()">Track positions</button>
+  <button id="refreshNow" class="btn2" onclick="doFetch()" disabled style="display:none">Refresh now</button>
+  <button class="btn2" onclick="toggleDebug()">Debug</button>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tabV2" onclick="setVer('v2')">GMX V2</button>
+  <button class="tab" id="tabV1" onclick="setVer('v1')">GMX V1</button>
+  <div class="tsep"></div>
+  <button class="tab active" id="cArb" onclick="setChain('arbitrum')">Arbitrum</button>
+  <button class="tab" id="cAvax" onclick="setChain('avalanche')">Avalanche</button>
+</div>
+
+<div class="sbar" id="sbar"><span>Enter a wallet address to begin</span></div>
+<div class="errbox" id="errbox"></div>
+<div class="dbgbox" id="dbgbox"></div>
+
+<div class="metrics">
+  <div class="mc"><div class="mc-label">Total size</div><div class="mc-val" id="mSize">—</div></div>
+  <div class="mc"><div class="mc-label">Collateral</div><div class="mc-val" id="mColl">—</div></div>
+  <div class="mc"><div class="mc-label">Unrealized PnL</div><div class="mc-val" id="mPnl">—</div></div>
+  <div class="mc"><div class="mc-label">Realized PnL</div><div class="mc-val neu" id="mRpnl">—</div></div>
+  <div class="mc"><div class="mc-label">Positions</div><div class="mc-val" id="mCount">—</div></div>
+  <div class="mc"><div class="mc-label">Avg leverage</div><div class="mc-val" id="mLev">—</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head">Unrealized PnL by position</div>
+  <div class="chart-body"><div class="chart-wrap">
+    <canvas id="chart" role="img" aria-label="PnL bar chart">No data.</canvas>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="card-head" id="posLabel">Open positions</div>
+  <table>
+    <thead><tr>
+      <th>Market</th><th>Dir</th><th>Size</th><th>Collateral</th>
+      <th>Entry</th><th>Mark</th><th>Liq.</th>
+      <th>Borrow fee</th><th>Funding fee</th>
+      <th>Unreal. PnL</th><th></th>
+    </tr></thead>
+    <tbody id="posBody"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-head" id="ordLabel">TP / SL orders</div>
+  <table>
+    <thead><tr>
+      <th>Market</th><th>Type</th><th>Dir</th><th>Size</th>
+      <th>Trigger price</th><th>Acceptable price</th><th></th>
+    </tr></thead>
+    <tbody id="ordBody"></tbody>
+  </table>
+</div>
+
+<footer>
+  V2 data from <a href="https://arbiscan.io/address/0x470fbC46bcC0f16532691Df360A07d8Bf5ee0789" target="_blank">GMX Reader</a> &amp;
+  <a href="https://arbiscan.io/address/0xFD70de6b91282D8017aA4E741e9Ae325CAb992d8" target="_blank">DataStore</a> via public Arbitrum RPC.
+  Fees are estimates. Verify at <a href="https://app.gmx.io" target="_blank">app.gmx.io</a>.
+</footer>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const C = {
+  arbitrum: {
+    DataStore:   '0xFD70de6b91282D8017aA4E741e9Ae325CAb992d8',
+    Reader:      '0x470fbC46bcC0f16532691Df360A07d8Bf5ee0789',
+    Multicall:   '0xe79118d6D92a4b23369ba356C90b9A7ABf1CB961',
+    EventEmitter:'0xC8ee91A54287DB53897056e12D9819156D3822Fb',
+    Vault:       '0x489ee077994B6658eAfA855C308275EAd8097C4A',
+  },
+  avalanche: {
+    DataStore:   '0x2F0b22339414ADeD7D5F06f9D604c7fF5b2fe3f6',
+    Reader:      '0x62Cb8740E6986B29dC671B2EB596676f60590A5B',
+    Multicall:   '0xcA11bde05977b3631167028862bE2a173976CA11',
+    EventEmitter:'0xDb17B211c34240B014ab6d61d4A31FA0C0e20c26',
+    Vault:       '0x9ab2De34A33fB459b538c43f251eB825645e8595',
+  },
+};
+const RPCS = {
+  arbitrum: ['https://arb1.arbitrum.io/rpc','https://arbitrum.llamarpc.com','https://rpc.ankr.com/arbitrum','https://1rpc.io/arb'],
+  avalanche: ['https://api.avax.network/ext/bc/C/rpc','https://avalanche.public-rpc.com','https://rpc.ankr.com/avalanche'],
+};
+const PRICES_URL = { arbitrum:'https://arbitrum-api.gmxinfra.io/prices/tickers', avalanche:'https://avalanche-api.gmxinfra.io/prices/tickers' };
+
+// ── Market / token maps ──────────────────────────────────────────────────────
+const MARKET_INFO = {
+  '0x70d95587d40a2caf56bd97485ab3eec10bee6336':{ sym:'ETH', idx:'0x82af49447d8a07e3bd95bd0d56f35241523fbab1', long:'0x82af49447d8a07e3bd95bd0d56f35241523fbab1', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x47c031236e19d024b42f8ae6780e44a573170703':{ sym:'BTC', idx:'0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f', long:'0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x09400d9db990d5ed3f35d7be61dfaeb900af03c9':{ sym:'SOL', idx:'0x2bcc6d6cdbbdc0a4071e48bb3b969b06b3330c07', long:'0x82af49447d8a07e3bd95bd0d56f35241523fbab1', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0xc7b99a164efd027a93f147376cc7da7c67c6bbe0':{ sym:'ARB', idx:'0x912ce59144191c1204e64559fe8253a0e49e6548', long:'0x912ce59144191c1204e64559fe8253a0e49e6548', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x7f1fa204bb700853d36994da19f830b6ad18d28f':{ sym:'LINK', idx:'0xf97f4df75117a78c1a5a0dbb814af92458539fb4', long:'0xf97f4df75117a78c1a5a0dbb814af92458539fb4', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x2d340912aa47e33a5ef1b7abafc0b8c9d4523979':{ sym:'DOGE', idx:'0xc4da4c24fd591125c3f47b340b6f4f76111083da', long:'0xaf88d065e77c8cc2239327c5edb3a432268e5831', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x1529876a9348d61c6c4a3eea1dd6cdb0e0101560':{ sym:'XRP',  idx:'0xc14e065b0067de91534e032868f5ac6ecf2c6868', long:'0xaf88d065e77c8cc2239327c5edb3a432268e5831', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x6853ea96ff216fab11d2d930ce3c508556a4bdc4':{ sym:'PEPE', idx:'0x25d887ce7a35172c62febfd67a1856f20faebb00', long:'0xaf88d065e77c8cc2239327c5edb3a432268e5831', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+  '0x450bb6774dd8a756274e0ab4107953259d2ac541':{ sym:'WIF',  idx:'0xa1b3d56a3c3293f7b8268f4e6017f8de1e0a6ac5', long:'0xaf88d065e77c8cc2239327c5edb3a432268e5831', short:'0xaf88d065e77c8cc2239327c5edb3a432268e5831'},
+};
+const MARKET_SYM = Object.fromEntries(Object.entries(MARKET_INFO).map(([k,v])=>[k,v.sym]));
+const IDX_DEC = {BTC:8,DOGE:8,XRP:6,PEPE:18,WIF:6,SOL:9};
+const COLL_DEC = {
+  '0xaf88d065e77c8cc2239327c5edb3a432268e5831':6,
+  '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8':6,
+  '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9':6,
+  '0x82af49447d8a07e3bd95bd0d56f35241523fbab1':18,
+  '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f':8,
+  '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e':6,
+  '0x49d5c2bdffac6ce2bfdb6640f4f80f226bc10bab':18,
+};
+const FALLBACK = {ETH:2984,BTC:63450,SOL:155,ARB:1.31,LINK:15.6,AVAX:38.4,DOGE:0.165,XRP:0.52,PEPE:0.0000142,WIF:2.87};
+
+// ── ABIs ─────────────────────────────────────────────────────────────────────
+const READER_ABI = [
+  { name:'getAccountPositions', type:'function', stateMutability:'view',
+    inputs:[{name:'dataStore',type:'address'},{name:'account',type:'address'},{name:'start',type:'uint256'},{name:'end',type:'uint256'}],
+    outputs:[{type:'tuple[]',components:[
+      {name:'addresses',type:'tuple',components:[{name:'account',type:'address'},{name:'market',type:'address'},{name:'collateralToken',type:'address'}]},
+      {name:'numbers',type:'tuple',components:[
+        {name:'sizeInUsd',type:'uint256'},{name:'sizeInTokens',type:'uint256'},{name:'collateralAmount',type:'uint256'},
+        {name:'pendingImpactAmount',type:'int256'},{name:'borrowingFactor',type:'uint256'},
+        {name:'fundingFeeAmountPerSize',type:'uint256'},{name:'longTokenClaimableFundingAmountPerSize',type:'uint256'},
+        {name:'shortTokenClaimableFundingAmountPerSize',type:'uint256'},
+        {name:'increasedAtTime',type:'uint256'},{name:'decreasedAtTime',type:'uint256'}
+      ]},
+      {name:'flags',type:'tuple',components:[{name:'isLong',type:'bool'}]}
+    ]}]},
+  { name:'getAccountOrders', type:'function', stateMutability:'view',
+    inputs:[{name:'dataStore',type:'address'},{name:'account',type:'address'},{name:'start',type:'uint256'},{name:'end',type:'uint256'}],
+    outputs:[{type:'tuple[]',components:[
+      {name:'addresses',type:'tuple',components:[
+        {name:'account',type:'address'},{name:'receiver',type:'address'},{name:'cancellationReceiver',type:'address'},
+        {name:'callbackContract',type:'address'},{name:'uiFeeReceiver',type:'address'},
+        {name:'market',type:'address'},{name:'initialCollateralToken',type:'address'},{name:'swapPath',type:'address[]'}
+      ]},
+      {name:'numbers',type:'tuple',components:[
+        {name:'orderType',type:'uint8'},{name:'decreasePositionSwapType',type:'uint8'},
+        {name:'sizeDeltaUsd',type:'uint256'},{name:'initialCollateralDeltaAmount',type:'uint256'},
+        {name:'triggerPrice',type:'uint256'},{name:'acceptablePrice',type:'uint256'},
+        {name:'executionFee',type:'uint256'},{name:'callbackGasLimit',type:'uint256'},
+        {name:'minOutputAmount',type:'uint256'},{name:'updatedAtTime',type:'uint256'}
+      ]},
+      {name:'flags',type:'tuple',components:[
+        {name:'isLong',type:'bool'},{name:'shouldUnwrapNativeToken',type:'bool'},
+        {name:'isFrozen',type:'bool'},{name:'autoCancel',type:'bool'}
+      ]},
+      {name:'data',type:'bytes32'}
+    ]}]}
+];
+
+const DATASTORE_ABI = [
+  {name:'getUint',type:'function',stateMutability:'view',inputs:[{name:'key',type:'bytes32'}],outputs:[{type:'uint256'}]},
+  {name:'getInt', type:'function',stateMutability:'view',inputs:[{name:'key',type:'bytes32'}],outputs:[{type:'int256'}]},
+];
+
+const MULTICALL_ABI = [{
+  name:'aggregate3', type:'function', stateMutability:'payable',
+  inputs:[{name:'calls',type:'tuple[]',components:[
+    {name:'target',type:'address'},{name:'allowFailure',type:'bool'},{name:'callData',type:'bytes'}
+  ]}],
+  outputs:[{name:'returnData',type:'tuple[]',components:[
+    {name:'success',type:'bool'},{name:'returnData',type:'bytes'}
+  ]}]
+}];
+
+const VAULT_ABI = [{
+  name:'getPosition',type:'function',stateMutability:'view',
+  inputs:[{name:'_account',type:'address'},{name:'_collateralToken',type:'address'},{name:'_indexToken',type:'address'},{name:'_isLong',type:'bool'}],
+  outputs:[{name:'size',type:'uint256'},{name:'collateral',type:'uint256'},{name:'averagePrice',type:'uint256'},{name:'entryFundingRate',type:'uint256'},{name:'reserveAmount',type:'uint256'},{name:'realisedPnl',type:'int256'},{name:'hasProfit',type:'bool'},{name:'lastIncreasedTime',type:'uint256'}]
+}];
+
+// ── DataStore key helpers ─────────────────────────────────────────────────────
+let _K = null;
+function K() {
+  if (_K) return _K;
+  const h = s => ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(['string'],[s]));
+  _K = { BORROW: h('CUMULATIVE_BORROWING_FACTOR'), FUNDING: h('FUNDING_FEE_AMOUNT_PER_SIZE') };
+  return _K;
+}
+function borrowKey(market,isLong){
+  return ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(['bytes32','address','bool'],[K().BORROW,market,isLong]));
+}
+function fundingKey(market,collToken,isLong){
+  return ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(['bytes32','address','address','bool'],[K().FUNDING,market,collToken,isLong]));
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ver='v2', chain='arbitrum', pnlChart=null, refreshTimer=null, refreshCd=0;
+let debugLines=[], showDebug=false;
+
+function dbg(s){ debugLines.push(s); if(showDebug) document.getElementById('dbgbox').textContent=debugLines.join('\n'); }
+function toggleDebug(){ showDebug=!showDebug; const b=document.getElementById('dbgbox'); b.style.display=showDebug?'block':'none'; if(showDebug)b.textContent=debugLines.join('\n')||'(empty)'; }
+function setVer(v){ ver=v; document.getElementById('tabV1').classList.toggle('active',v==='v1'); document.getElementById('tabV2').classList.toggle('active',v==='v2'); }
+function setChain(c){ chain=c; document.getElementById('cArb').classList.toggle('active',c==='arbitrum'); document.getElementById('cAvax').classList.toggle('active',c==='avalanche'); }
+function setStatus(h){ document.getElementById('sbar').innerHTML=h; }
+function showErr(m){ const b=document.getElementById('errbox'); b.style.display=m?'block':'none'; b.textContent=m||''; }
+
+// ── Auto-refresh ──────────────────────────────────────────────────────────────
+function showRefreshBtn(){ const b=document.getElementById('refreshNow'); b.style.display='inline-block'; b.disabled=false; }
+function startRefresh(){
+  showRefreshBtn(); stopRefresh(); refreshCd=300;
+  refreshTimer=setInterval(()=>{
+    refreshCd--;
+    const el=document.getElementById('countdown');
+    if(el){ const m=Math.floor(refreshCd/60),s=refreshCd%60; el.textContent=m+':'+(s<10?'0':'')+s; }
+    if(refreshCd<=0){
+      const addr=document.getElementById('addr').value.trim();
+      if(addr.match(/^0x[0-9a-fA-F]{40}$/)) doFetch(); else stopRefresh();
+    }
+  },1000);
+}
+function stopRefresh(){ if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null;} }
+
+// ── Prices ────────────────────────────────────────────────────────────────────
+// GMX oracle price format: price = USD × 10^(30 - tokenDecimals)
+// So USD = price / 10^(30 - tokenDecimals)  →  formatUnits(price, 30 - tokenDecimals)
+const PRICE_DEC = {
+  BTC:8,'WBTC':8,'WBTC.B':8,'TBTC':8,'XAUT':8,'XAUT.V2':8,'SATS':8,'LTC':8,
+  SOL:9,
+  USDC:6,'USDC.E':6,USDT:6,XRP:6,
+  // everything else defaults to 18
+};
+function getPriceDec(sym){ return PRICE_DEC[sym]??18; }
+
+async function fetchPrices(){
+  try{
+    const r=await fetch(PRICES_URL[chain]);
+    const arr=await r.json();
+    const map={};
+    for(const t of arr){
+      const sym=(t.tokenSymbol||'').toUpperCase().replace('.','_DOT_');
+      const symClean=(t.tokenSymbol||'').toUpperCase();
+      try{
+        const dec=getPriceDec(symClean);
+        const hi=ethers.BigNumber.from(t.maxPrice||'0');
+        const lo=ethers.BigNumber.from(t.minPrice||'0');
+        const mid=hi.add(lo).div(2);
+        const usd=parseFloat(ethers.utils.formatUnits(mid,30-dec));
+        if(usd>0){ map[symClean]=usd; }
+      }catch(e){}
+    }
+    dbg('Prices OK: '+Object.entries(map).slice(0,6).map(([k,v])=>k+'='+v.toFixed(2)).join(', ')+' ...');
+    return map;
+  }catch(e){ dbg('Prices failed: '+e.message); return {}; }
+}
+
+// ── Provider helper ────────────────────────────────────────────────────────────
+async function getProvider(){
+  const rpcs=RPCS[chain];
+  for(const rpc of rpcs){
+    try{
+      const p=new ethers.providers.JsonRpcProvider(rpc);
+      await p.getBlockNumber();
+      dbg('RPC OK: '+rpc);
+      return p;
+    }catch(e){ dbg('RPC fail '+rpc+': '+e.message.slice(0,60)); }
+  }
+  throw new Error('All RPCs failed');
+}
+
+// ── V2 Positions ───────────────────────────────────────────────────────────────
+async function fetchV2Positions(account, provider){
+  const {DataStore:ds, Reader:rd, Multicall:mc} = C[chain];
+  const code = await provider.getCode(rd);
+  if(code==='0x') throw new Error('No contract at Reader: '+rd);
+  const reader = new ethers.Contract(rd.toLowerCase(), READER_ABI, provider);
+  const raw = await reader.getAccountPositions(ds.toLowerCase(), account.toLowerCase(), 0, 50, {gasLimit:15000000});
+  dbg('Raw positions: '+raw.length);
+
+  // Fetch cumulative borrowing + funding factors via Multicall
+  let feeMap = {};
+  if(raw.length > 0){
+    try{
+      const dsIface = new ethers.utils.Interface(DATASTORE_ABI);
+      const calls=[], meta=[];
+      for(const p of raw){
+        const mkt=p.addresses.market;
+        const col=p.addresses.collateralToken;
+        const lng=p.flags.isLong;
+        calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getUint',[borrowKey(mkt,lng)])});
+        meta.push({t:'borrow',mkt,lng});
+        calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getInt',[fundingKey(mkt,col,lng)])});
+        meta.push({t:'funding',mkt,col,lng});
+      }
+      const multicall=new ethers.Contract(mc.toLowerCase(),MULTICALL_ABI,provider);
+      const results=await multicall.callStatic.aggregate3(calls,{gasLimit:20000000});
+      for(let i=0;i<results.length;i++){
+        if(!results[i].success) continue;
+        const m=meta[i];
+        const abiType = m.t==='funding' ? ['int256'] : ['uint256'];
+        const rawVal = ethers.utils.defaultAbiCoder.decode(abiType, results[i].returnData)[0];
+        const val = ethers.BigNumber.from(rawVal.toString());
+        const key=m.mkt+'_'+m.lng;
+        if(!feeMap[key]) feeMap[key]={};
+        if(m.t==='borrow') feeMap[key].curBorrow=val;
+        else feeMap[key].curFunding=val;
+      }
+      dbg('Fee reads: '+Object.keys(feeMap).length+' markets');
+    }catch(e){ dbg('Fee multicall failed: '+e.message.slice(0,80)); }
+  }
+  return {raw, feeMap};
+}
+
+// ── V2 Orders (TP/SL) — DataStore direct reads (bypasses broken Reader ABI) ──
+// GMX stores each order field individually; we enumerate keys then batch-read fields.
+async function fetchOrders(account, provider){
+  try{
+    const {DataStore:ds,Multicall:mc}=C[chain];
+    const ENC = (types,vals) => ethers.utils.defaultAbiCoder.encode(types,vals);
+    const H   = str => ethers.utils.keccak256(ENC(['string'],[str]));
+
+    // Key constants — exact names from OrderStoreUtils.sol
+    const ACCOUNT_ORDER_LIST  = H('ACCOUNT_ORDER_LIST');
+    const F_ORDER_TYPE        = H('ORDER_TYPE');
+    const F_MARKET            = H('MARKET');
+    const F_TRIGGER_PRICE     = H('TRIGGER_PRICE');
+    const F_ACCEPTABLE_PRICE  = H('ACCEPTABLE_PRICE');
+    const F_SIZE_DELTA_USD    = H('SIZE_DELTA_USD');
+    const F_IS_LONG           = H('IS_LONG');
+
+    // account order list set-key
+    const listKey = ethers.utils.keccak256(ENC(['bytes32','address'],[ACCOUNT_ORDER_LIST,account]));
+
+    const DS_ABI=[
+      {name:'getBytes32Count',type:'function',stateMutability:'view',inputs:[{name:'k',type:'bytes32'}],outputs:[{type:'uint256'}]},
+      {name:'getBytes32ValuesAt',type:'function',stateMutability:'view',inputs:[{name:'k',type:'bytes32'},{name:'s',type:'uint256'},{name:'e',type:'uint256'}],outputs:[{type:'bytes32[]'}]},
+      {name:'getUint',type:'function',stateMutability:'view',inputs:[{name:'k',type:'bytes32'}],outputs:[{type:'uint256'}]},
+      {name:'getAddress',type:'function',stateMutability:'view',inputs:[{name:'k',type:'bytes32'}],outputs:[{type:'address'}]},
+      {name:'getBool',type:'function',stateMutability:'view',inputs:[{name:'k',type:'bytes32'}],outputs:[{type:'bool'}]},
+    ];
+    const dsC = new ethers.Contract(ds.toLowerCase(), DS_ABI, provider);
+
+    const count = (await dsC.getBytes32Count(listKey)).toNumber();
+    dbg('Order count from DataStore: '+count);
+    if(count===0) return [];
+
+    const keys = await dsC.getBytes32ValuesAt(listKey, 0, Math.min(count,50));
+    dbg('Order keys: '+keys.length);
+
+    // field-key derivation: keccak256(abi.encode(FIELD_CONST, orderKey))
+    // Field key: keccak256(abi.encode(orderKey, FIELD_CONST)) — orderKey first
+    const fk = (ok, fc) => ethers.utils.keccak256(ENC(['bytes32','bytes32'],[ok,fc]));
+
+    // Batch all reads via Multicall
+    const dsIface = new ethers.utils.Interface(DS_ABI);
+    const calls=[], meta=[];
+    for(const ok of keys){
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getUint',[fk(ok, F_ORDER_TYPE)])});
+      meta.push({t:'ot',ok});
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getAddress',[fk(ok, F_MARKET)])});
+      meta.push({t:'mkt',ok});
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getUint',[fk(ok, F_TRIGGER_PRICE)])});
+      meta.push({t:'tp',ok});
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getUint',[fk(ok, F_ACCEPTABLE_PRICE)])});
+      meta.push({t:'ap',ok});
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getUint',[fk(ok, F_SIZE_DELTA_USD)])});
+      meta.push({t:'sz',ok});
+      calls.push({target:ds.toLowerCase(),allowFailure:true,callData:dsIface.encodeFunctionData('getBool',[fk(ok, F_IS_LONG)])});
+      meta.push({t:'lng',ok});
+    }
+
+    const mcC = new ethers.Contract(mc.toLowerCase(), MULTICALL_ABI, provider);
+    const res = await mcC.callStatic.aggregate3(calls,{gasLimit:20000000});
+
+    const orders={};
+    for(let i=0;i<res.length;i++){
+      if(!res[i].success) continue;
+      const m=meta[i];
+      if(!orders[m.ok]) orders[m.ok]={key:m.ok};
+      const d=res[i].returnData;
+      if(m.t==='ot')  orders[m.ok].orderType = ethers.utils.defaultAbiCoder.decode(['uint256'],d)[0].toNumber();
+      if(m.t==='mkt') orders[m.ok].market    = ethers.utils.defaultAbiCoder.decode(['address'],d)[0];
+      if(m.t==='tp')  orders[m.ok].triggerPrice   = ethers.BigNumber.from(ethers.utils.defaultAbiCoder.decode(['uint256'],d)[0]);
+      if(m.t==='ap')  orders[m.ok].acceptablePrice= ethers.BigNumber.from(ethers.utils.defaultAbiCoder.decode(['uint256'],d)[0]);
+      if(m.t==='sz')  orders[m.ok].sizeDeltaUsd   = ethers.BigNumber.from(ethers.utils.defaultAbiCoder.decode(['uint256'],d)[0]);
+      if(m.t==='lng') orders[m.ok].isLong = ethers.utils.defaultAbiCoder.decode(['bool'],d)[0];
+    }
+
+    const all=Object.values(orders);
+    dbg('Orders decoded: '+all.map(o=>'type='+o.orderType+' long='+o.isLong+' mkt='+(o.market||'').slice(0,8)).join(' | '));
+    // 5=LimitDecrease (TP), 6=StopLossDecrease (SL)
+    return all.filter(o=>o.orderType===5||o.orderType===6);
+  }catch(e){
+    dbg('Orders (DataStore) failed: '+e.message.slice(0,120));
+    return [];
+  }
+}
+
+// ── Realized PnL — PositionDecrease event log scan ─────────────────────────
+// EventLog1(address msgSender, string eventName, string indexed eventNameHash,
+//            bytes32 indexed topic1, EventUtils.EventLogData eventData)
+// PositionDecrease uses EventLog1 with topic1 = cast(account → bytes32)
+
+// Full EventLogData ABI (for decoding basePnlUsd from intItems[1])
+const EVENTLOGDATA_TYPE = 'tuple(' +
+  'tuple(tuple(string,address)[] items,tuple(string,address[])[] arrayItems) addressItems,' +
+  'tuple(tuple(string,uint256)[] items,tuple(string,uint256[])[] arrayItems) uintItems,' +
+  'tuple(tuple(string,int256)[] items,tuple(string,int256[])[] arrayItems) intItems,' +
+  'tuple(tuple(string,bool)[] items,tuple(string,bool[])[] arrayItems) boolItems,' +
+  'tuple(tuple(string,bytes32)[] items,tuple(string,bytes32[])[] arrayItems) bytes32Items,' +
+  'tuple(tuple(string,bytes)[] items,tuple(string,bytes[])[] arrayItems) bytesItems,' +
+  'tuple(tuple(string,string)[] items,tuple(string,string[])[] arrayItems) stringItems' +
+')';
+
+function parseBasePnlUsd(logData){
+  try{
+    // Non-indexed params: (address msgSender, string eventName, EventLogData eventData)
+    const dec = ethers.utils.defaultAbiCoder.decode(['address','string',EVENTLOGDATA_TYPE], logData);
+    const intItems = dec[2].intItems.items; // IntKeyValue[]
+    // intItems[1] = {key: "basePnlUsd", value: int256}
+    const item = intItems[1];
+    return ethers.BigNumber.from(item[1].toString()); // int256 as BigNumber
+  }catch(e){ return null; }
+}
+
+async function fetchRealizedPnl(account, provider){
+  const emitter = C[chain].EventEmitter;
+  // topic[1] = keccak256("PositionDecrease") for indexed eventNameHash
+  // topic[2] = account padded to bytes32 for indexed topic1
+  const posDecHash = ethers.utils.id('PositionDecrease');
+  const paddedAcct = ethers.utils.hexZeroPad(account.toLowerCase(), 32);
+  const topics = [null, posDecHash, paddedAcct];
+
+  let totalPnlRaw = ethers.BigNumber.from(0);
+  let tradeCount = 0;
+  let latestBlock;
+
+  try{ latestBlock = await provider.getBlockNumber(); }
+  catch(e){ return null; }
+
+  // Try progressively larger block ranges until we get data or hit a limit
+  // Arbitrum: ~4 blocks/sec → 1M blocks ≈ 2.9 days, 100k ≈ 6.9 hours
+  const RANGES = [
+    { blocks: 2000000, label: '~5 days' },
+    { blocks: 500000,  label: '~1.5 days' },
+    { blocks: 100000,  label: '~7 hours' },
+  ];
+
+  for(const {blocks, label} of RANGES){
+    try{
+      const fromBlock = Math.max(0, latestBlock - blocks);
+      dbg(`Scanning realized PnL: blocks ${fromBlock}–${latestBlock} (${label})`);
+      const logs = await provider.getLogs({ address:emitter, topics, fromBlock, toBlock:latestBlock });
+      dbg(`PositionDecrease logs found: ${logs.length}`);
+
+      for(const log of logs){
+        const pnl = parseBasePnlUsd(log.data);
+        if(pnl !== null){
+          totalPnlRaw = totalPnlRaw.add(pnl);
+          tradeCount++;
+        }
+      }
+
+      const usdValue = parseFloat(ethers.utils.formatUnits(totalPnlRaw, 30));
+      return { value: usdValue, count: tradeCount, source: label };
+    }catch(e){
+      dbg(`Realized PnL scan (${label}) failed: ${e.message.slice(0,80)}`);
+      // Try next (smaller) range
+    }
+  }
+  return null;
+}
+
+// ── V1 positions ───────────────────────────────────────────────────────────────
+const V1_PAIRS = {
+  arbitrum:[
+    {coll:'0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',idx:'0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',sym:'ETH'},
+    {coll:'0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',idx:'0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',sym:'ETH'},
+    {coll:'0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',idx:'0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',sym:'BTC'},
+    {coll:'0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',idx:'0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',sym:'BTC'},
+    {coll:'0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',idx:'0xf97f4df75117a78c1A5a0DBb814Af92458539FB4',sym:'LINK'},
+  ],
+  avalanche:[
+    {coll:'0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',idx:'0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',sym:'ETH'},
+    {coll:'0x50b7545627a5162F82A992c33b87aDc75187B218',idx:'0x50b7545627a5162F82A992c33b87aDc75187B218',sym:'BTC'},
+    {coll:'0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',idx:'0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',sym:'ETH'},
+    {coll:'0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',idx:'0x50b7545627a5162F82A992c33b87aDc75187B218',sym:'BTC'},
+    {coll:'0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',idx:'0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',sym:'AVAX'},
+  ]
+};
+async function fetchV1Positions(account, provider){
+  const vault=new ethers.Contract(C[chain].Vault.toLowerCase(), VAULT_ABI, provider);
+  const found=[];
+  for(const pair of (V1_PAIRS[chain]||[])){
+    for(const lng of [true,false]){
+      try{
+        const p=await vault.getPosition(account.toLowerCase(),pair.coll.toLowerCase(),pair.idx.toLowerCase(),lng);
+        if(p.size.gt(0)) found.push({...p,_sym:pair.sym,_isLong:lng});
+      }catch(e){}
+    }
+  }
+  dbg('V1 positions: '+found.length);
+  return {raw:found, feeMap:{}};
+}
+
+// ── Parse positions ───────────────────────────────────────────────────────────
+function parseV2(raw, feeMap, prices){
+  return raw.map(p=>{
+    const mAddr=p.addresses.market.toLowerCase();
+    const sym=MARKET_SYM[mAddr]||mAddr.slice(2,8).toUpperCase();
+    // *** Fix: sizeInTokens uses GMX 30-decimal precision, not native token decimals ***
+    const sizeUsd =parseFloat(ethers.utils.formatUnits(p.numbers.sizeInUsd,30));
+    const sizeTok =parseFloat(ethers.utils.formatUnits(p.numbers.sizeInTokens,IDX_DEC[sym]??18)); // native token decimals
+    const collDec =COLL_DEC[p.addresses.collateralToken.toLowerCase()]??6;
+    const coll    =parseFloat(ethers.utils.formatUnits(p.numbers.collateralAmount,collDec));
+    const entry   =sizeTok>0?sizeUsd/sizeTok:0;
+    const mark    =prices[sym]||FALLBACK[sym]||entry;
+    const pnl     =entry>0?(p.flags.isLong?(mark-entry)/entry*sizeUsd:(entry-mark)/entry*sizeUsd):0;
+    const liqBuf  =sizeUsd>0?(coll/sizeUsd)*0.85:0;
+    const liq     =p.flags.isLong?entry*(1-liqBuf):entry*(1+liqBuf);
+
+    // Fees from DataStore delta
+    const fk=p.addresses.market+'_'+p.flags.isLong;
+    const fd=feeMap[fk]||{};
+    let borrowFeeUsd=0, fundingFeeUsd=0;
+    try{
+      if(fd.curBorrow&&p.numbers.borrowingFactor){
+        const delta=fd.curBorrow.sub(p.numbers.borrowingFactor);
+        if(delta.gt(0)){
+          borrowFeeUsd=parseFloat(ethers.utils.formatUnits(
+            p.numbers.sizeInUsd.mul(delta).div(ethers.BigNumber.from('1000000000000000000000000000000')),30));
+        }
+      }
+      if(fd.curFunding!=null && p.numbers.fundingFeeAmountPerSize){
+        try{
+          // fundingFeeAmountPerSize is cumulative: native_units × 1e30 / USD
+          // pendingFee = sizeInUsd × delta / 1e30 / 1e30  (two 1e30 divisions)
+          const posFunding = ethers.BigNumber.from(p.numbers.fundingFeeAmountPerSize.toString());
+          const delta = fd.curFunding.sub(posFunding);
+          const PREC = ethers.BigNumber.from('1000000000000000000000000000000');
+          // Divide by 1e30 twice to get native collateral units
+          const feeRaw = p.numbers.sizeInUsd.mul(delta.abs()).div(PREC).div(PREC);
+          const feeInColl = parseFloat(ethers.utils.formatUnits(feeRaw, collDec));
+          // Sanity check: fee shouldn't exceed 10× position size in USD
+          const sizeUsd = parseFloat(ethers.utils.formatUnits(p.numbers.sizeInUsd, 30));
+          if(Math.abs(feeInColl) > sizeUsd * 10){
+            dbg(`  funding sanity fail: feeInColl=${feeInColl.toExponential(2)} sizeUsd=${sizeUsd}`);
+          } else {
+            fundingFeeUsd = delta.isNegative() ? -feeInColl : feeInColl;
+          }
+          dbg(`  funding delta=${delta.toString().slice(0,22)} feeRaw=${feeRaw.toString()} feeInColl=${feeInColl.toFixed(6)}`);
+        }catch(e){ dbg('funding calc err: '+e.message.slice(0,60)); }
+      }
+    }catch(e){ dbg('Fee calc error: '+e.message.slice(0,60)); }
+
+    dbg(`  ${sym} sizeUsd=${sizeUsd.toFixed(2)} sizeTok=${sizeTok.toFixed(6)} entry=${entry.toFixed(4)} mark=${mark} pnl=${pnl.toFixed(2)} borrowFee=${borrowFeeUsd.toFixed(4)}`);
+    return {market:`${sym}/USD`,ver:'v2',isLong:p.flags.isLong,size:sizeUsd,collateral:coll,entry,mark,liq,pnl,borrowFeeUsd,fundingFeeUsd,mAddr};
+  }).filter(p=>p.size>0.01);
+}
+
+const V1_TOKEN={
+  '0x82af49447d8a07e3bd95bd0d56f35241523fbab1':'ETH','0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f':'BTC',
+  '0x912ce59144191c1204e64559fe8253a0e49e6548':'ARB','0xf97f4df75117a78c1a5a0dbb814af92458539fb4':'LINK',
+  '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7':'AVAX',
+};
+function parseV1(raw, prices){
+  return raw.map(p=>{
+    const sym=p._sym;
+    const size=parseFloat(ethers.utils.formatUnits(p.size,30));
+    const coll=parseFloat(ethers.utils.formatUnits(p.collateral,30));
+    const entry=parseFloat(ethers.utils.formatUnits(p.averagePrice,30));
+    const mark=prices[sym]||FALLBACK[sym]||entry;
+    const pnl=entry>0?(p._isLong?(mark-entry)/entry*size:(entry-mark)/entry*size):0;
+    const liq=size>0?(p._isLong?entry*(1-coll/size*0.9):entry*(1+coll/size*0.9)):0;
+    return {market:`${sym}/USD`,ver:'v1',isLong:p._isLong,size,collateral:coll,entry,mark,liq,pnl,borrowFeeUsd:0,fundingFeeUsd:0};
+  }).filter(p=>p.size>0.01);
+}
+
+// ── Format ─────────────────────────────────────────────────────────────────────
+function fu(n,d=2){ return '$'+n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function fs(n){ return n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1000?'$'+(n/1e3).toFixed(1)+'K':fu(n,0); }
+function fp(n){ if(!n)return'—'; if(n>=1000)return fu(n,0); if(n>=1)return fu(n,2); if(n>=.01)return fu(n,4); return fu(n,8); }
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function renderMetrics(ps){
+  if(!ps.length){['mSize','mColl','mPnl','mCount','mLev'].forEach(id=>document.getElementById(id).textContent='—');return;}
+  const ts=ps.reduce((s,p)=>s+p.size,0), tc=ps.reduce((s,p)=>s+p.collateral,0), tp=ps.reduce((s,p)=>s+p.pnl,0);
+  document.getElementById('mSize').textContent=fs(ts);
+  document.getElementById('mColl').textContent=fs(tc);
+  const pe=document.getElementById('mPnl');
+  pe.textContent=(tp>=0?'+':'')+fu(tp,2);
+  pe.className='mc-val '+(tp>=0?'pos':'neg');
+  document.getElementById('mCount').textContent=ps.length;
+  document.getElementById('mLev').textContent=tc>0?(ts/tc).toFixed(1)+'x':'—';
+}
+
+function renderRealizedPnl(rpnl){
+  const el=document.getElementById('mRpnl');
+  const lbl=document.querySelector('.mc:nth-child(4) .mc-label');
+  if(!rpnl){ el.textContent='—'; el.className='mc-val neu'; return; }
+  if(rpnl.value!=null){
+    el.textContent=(rpnl.value>=0?'+':'')+fu(rpnl.value,2);
+    el.className='mc-val '+(rpnl.value>=0?'pos':'neg');
+    if(lbl) lbl.textContent='Realized PnL ('+rpnl.source+')';
+  }
+}
+
+function renderChart(ps){
+  const ctx=document.getElementById('chart').getContext('2d');
+  if(pnlChart){pnlChart.destroy();pnlChart=null;}
+  if(!ps.length)return;
+  const data=ps.map(p=>parseFloat(p.pnl.toFixed(2)));
+  pnlChart=new Chart(ctx,{type:'bar',
+    data:{labels:ps.map(p=>p.market.split('/')[0]),datasets:[{data,
+      backgroundColor:data.map(v=>v>=0?'rgba(16,185,129,.7)':'rgba(239,68,68,.7)'),
+      borderColor:data.map(v=>v>=0?'#10b981':'#ef4444'),borderWidth:1,borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(c.raw>=0?'+':'')+fu(c.raw,2)}}},
+      scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:11}}},
+              y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#6b7280',font:{size:11},callback:v=>(v>=0?'+$':'-$')+Math.abs(v)}}}}
+  });
+}
+
+function renderPositions(ps, label){
+  document.getElementById('posLabel').textContent=label||'Open positions';
+  const body=document.getElementById('posBody');
+  if(!ps.length){body.innerHTML='<tr><td colspan="11"><div class="empty">No open positions found</div></td></tr>';return;}
+  body.innerHTML=ps.map(p=>{
+    const lev=p.collateral>0?(p.size/p.collateral).toFixed(1)+'x':'—';
+    const pc=p.pnl>=0?'p-pos':'p-neg', sign=p.pnl>=0?'+':'';
+    const lw=p.isLong?(p.mark>0&&p.liq>0&&p.mark/p.liq<1.12?'liqw':''):(p.liq>0&&p.liq/p.mark<1.12?'liqw':'');
+    const bfc=p.borrowFeeUsd>0.001?'fee-neg':'fee-neu';
+    const ffc=p.fundingFeeUsd>0.001?'fee-pos':p.fundingFeeUsd<-0.001?'fee-neg':'fee-neu';
+    const mAddrLink=p.mAddr?`https://app.gmx.io/#/trade?market=${p.mAddr}`:`https://app.gmx.io/#/trade`;
+    return `<tr>
+      <td><div class="pname">${p.market}<span class="vtag">${p.ver}</span></div><div class="psub">${lev} lev</div></td>
+      <td><span class="badge ${p.isLong?'long':'short'}">${p.isLong?'LONG':'SHORT'}</span></td>
+      <td>${fs(p.size)}</td><td>${fu(p.collateral,2)}</td>
+      <td>${fp(p.entry)}</td><td>${fp(p.mark)}</td>
+      <td class="${lw}">${fp(p.liq)}</td>
+      <td class="${bfc}">${p.borrowFeeUsd>0.001?'-'+fu(p.borrowFeeUsd,4):'—'}</td>
+      <td class="${ffc}">${Math.abs(p.fundingFeeUsd)>0.001?(p.fundingFeeUsd>0?'+':'-')+fu(Math.abs(p.fundingFeeUsd),4):'—'}</td>
+      <td class="${pc}">${sign}${fu(p.pnl,2)}</td>
+      <td><a class="link-btn" href="${mAddrLink}" target="_blank">Manage ↗</a></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderOrders(orders){
+  const label=document.getElementById('ordLabel');
+  const body=document.getElementById('ordBody');
+  label.textContent='TP / SL orders'+(orders.length?` (${orders.length})`:'');
+  if(!orders.length){body.innerHTML='<tr><td colspan="7"><div class="empty">No TP/SL orders found</div></td></tr>';return;}
+
+  // uint256.max sentinel = GMX "no limit / full close"
+  const UINT256_MAX_HALF = ethers.BigNumber.from('0x8000000000000000000000000000000000000000000000000000000000000000');
+
+  function fmtOrderPrice(bn, sym){
+    if(!bn||bn.isZero()) return '—';
+    if(bn.gte(UINT256_MAX_HALF)) return '—';
+    // Order prices: oracle format USD × 10^(30 - tokenDecimals)
+    const tDec = IDX_DEC[sym]??18;
+    const price = parseFloat(ethers.utils.formatUnits(bn, 30 - tDec));
+    if(price > 1e9) return '—'; // GMX sentinel values far exceed real prices
+    return fp(price);
+  }
+
+  function fmtOrderSize(bn){
+    if(!bn) return '—';
+    if(bn.gte(UINT256_MAX_HALF)) return 'Full close';
+    const size = parseFloat(ethers.utils.formatUnits(bn, 30));
+    return fs(size);
+  }
+
+  body.innerHTML=orders.map(o=>{
+    const mAddr=(o.market||'').toLowerCase();
+    const sym=MARKET_SYM[mAddr]||(mAddr.slice(2,8).toUpperCase());
+    const isLong=!!o.isLong;
+    const isTP=o.orderType===5;
+    return `<tr>
+      <td><div class="pname">${sym}/USD</div></td>
+      <td><span class="badge ${isTP?'tp-badge':'sl-badge'}">${isTP?'TAKE PROFIT':'STOP LOSS'}</span></td>
+      <td><span class="badge ${isLong?'long':'short'}">${isLong?'LONG':'SHORT'}</span></td>
+      <td>${fmtOrderSize(o.sizeDeltaUsd)}</td>
+      <td>${fmtOrderPrice(o.triggerPrice, sym)}</td>
+      <td>${fmtOrderPrice(o.acceptablePrice, sym)}</td>
+      <td><a class="link-btn" href="https://app.gmx.io/#/trade" target="_blank">Manage ↗</a></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+async function doFetch(){
+  const addr=document.getElementById('addr').value.trim();
+  const btn=document.getElementById('fetchBtn');
+  if(!addr.match(/^0x[0-9a-fA-F]{40}$/)){
+    setStatus('<span style="color:var(--re)">⚠ Enter a valid Ethereum address</span>');
+    return;
+  }
+  btn.disabled=true; btn.textContent='Loading…';
+  showErr(''); debugLines=[];
+  stopRefresh();
+  setStatus('<span class="spin"></span> Connecting…');
+  renderMetrics([]); renderChart([]); renderPositions([],''); renderOrders([]);
+  document.getElementById('mRpnl').textContent='—';
+
+  try{
+    dbg(`Address: ${addr}  Ver: ${ver}  Chain: ${chain}`);
+    const provider = await getProvider();
+    const prices   = await fetchPrices();
+    const priceMap = Object.keys(prices).length>0?prices:FALLBACK;
+    const priceNote= Object.keys(prices).length>0?'live prices':'fallback prices';
+
+    const [{raw,feeMap}, orders, rpnl] = await Promise.all([
+      ver==='v2'?fetchV2Positions(addr,provider):fetchV1Positions(addr,provider),
+      ver==='v2'?fetchOrders(addr,provider):Promise.resolve([]),
+      ver==='v2'?fetchRealizedPnl(addr,provider):Promise.resolve(null),
+    ]);
+
+    const positions=ver==='v2'?parseV2(raw,feeMap,priceMap):parseV1(raw,priceMap);
+    dbg(`Parsed: ${positions.length} positions`);
+
+    renderMetrics(positions);
+    renderRealizedPnl(rpnl);
+    renderChart(positions);
+    renderPositions(positions,`GMX ${ver.toUpperCase()} · ${chain.charAt(0).toUpperCase()+chain.slice(1)} · ${positions.length} position${positions.length!==1?'s':''}`);
+    renderOrders(orders);
+
+    const cdHtml=`<span class="cd">↻ <span id="countdown">5:00</span></span>`;
+    setStatus(positions.length>0
+      ? `<span class="dot dot-live"></span> ${positions.length} position${positions.length>1?'s':''} · ${priceNote} ${cdHtml}`
+      : `<span class="dot" style="background:var(--mu)"></span> No open positions · ${priceNote} ${cdHtml}`);
+
+    startRefresh();
+  }catch(e){
+    showErr(e.message);
+    setStatus('<span class="dot dot-err"></span> Failed');
+    dbg('FATAL: '+e.message);
+  }
+  if(showDebug) document.getElementById('dbgbox').textContent=debugLines.join('\n');
+  btn.disabled=false; btn.textContent='Track positions';
+}
+
+document.getElementById('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') doFetch(); });
+</script>
+</body></html>
