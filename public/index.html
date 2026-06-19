@@ -65,6 +65,7 @@ tr:hover td{background:var(--s2)}
 .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;letter-spacing:.04em}
 .long{background:var(--gr-bg);color:var(--gr)}.short{background:var(--re-bg);color:var(--re)}
 .tp-badge{background:var(--gr-bg);color:var(--gr)}.sl-badge{background:var(--re-bg);color:var(--re)}
+.long-badge{background:var(--gr-bg);color:var(--gr)}.short-badge{background:var(--re-bg);color:var(--re)}
 .vtag{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:middle;background:var(--s2);color:var(--mu);font-family:var(--mono)}
 .pname{font-weight:500;font-size:13px}.psub{font-size:11px;color:var(--mu);margin-top:2px}
 .p-pos{color:var(--gr);font-weight:600}.p-neg{color:var(--re);font-weight:600}.p-neu{color:var(--mu)}
@@ -144,6 +145,16 @@ footer a:hover{text-decoration:underline}
       <th>Trigger price</th><th>Acceptable price</th><th></th>
     </tr></thead>
     <tbody id="ordBody"></tbody>
+  </table>
+</div>
+
+<div class="card" id="partialCard" style="display:none">
+  <div class="card-head" id="partialLabel">Realized Partial Closes</div>
+  <table>
+    <thead><tr>
+      <th>Date</th><th>Market</th><th>Dir</th><th>Size closed</th><th>Realized PnL</th><th>Tx</th>
+    </tr></thead>
+    <tbody id="partialBody"></tbody>
   </table>
 </div>
 
@@ -495,34 +506,37 @@ const EVENTLOGDATA_TYPE = 'tuple(' +
   'tuple(tuple(string,string)[] items,tuple(string,string[])[] arrayItems) stringItems' +
 ')';
 
-function parseBasePnlUsd(logData){
+function parsePositionDecrease(logData){
   try{
-    // Non-indexed params: (address msgSender, string eventName, EventLogData eventData)
     const dec = ethers.utils.defaultAbiCoder.decode(['address','string',EVENTLOGDATA_TYPE], logData);
-    const intItems = dec[2].intItems.items; // IntKeyValue[]
-    // intItems[1] = {key: "basePnlUsd", value: int256}
-    const item = intItems[1];
-    return ethers.BigNumber.from(item[1].toString()); // int256 as BigNumber
+    const addrItems  = dec[2].addressItems.items;
+    const uintItems  = dec[2].uintItems.items;
+    const intItems   = dec[2].intItems.items;
+    const boolItems  = dec[2].boolItems.items;
+    // Extract by key name for robustness
+    const getAddr = k => (addrItems.find(i=>i[0]===k)||[])[1] || null;
+    const getUint = k => { const i=uintItems.find(x=>x[0]===k); return i?ethers.BigNumber.from(i[1].toString()):null; };
+    const getInt  = k => { const i=intItems.find(x=>x[0]===k);  return i?ethers.BigNumber.from(i[1].toString()):null; };
+    const getBool = k => { const i=boolItems.find(x=>x[0]===k); return i?i[1]:null; };
+    return {
+      market:       getAddr('market'),
+      basePnlUsd:   getInt('basePnlUsd'),
+      sizeDeltaUsd: getUint('sizeDeltaUsd'),
+      isLong:       getBool('isLong'),
+    };
   }catch(e){ return null; }
 }
 
 async function fetchRealizedPnl(account, provider){
   const emitter = C[chain].EventEmitter;
-  // topic[1] = keccak256("PositionDecrease") for indexed eventNameHash
-  // topic[2] = account padded to bytes32 for indexed topic1
   const posDecHash = ethers.utils.id('PositionDecrease');
   const paddedAcct = ethers.utils.hexZeroPad(account.toLowerCase(), 32);
   const topics = [null, posDecHash, paddedAcct];
 
-  let totalPnlRaw = ethers.BigNumber.from(0);
-  let tradeCount = 0;
   let latestBlock;
-
   try{ latestBlock = await provider.getBlockNumber(); }
   catch(e){ return null; }
 
-  // Try progressively larger block ranges until we get data or hit a limit
-  // Arbitrum: ~4 blocks/sec → 1M blocks ≈ 2.9 days, 100k ≈ 6.9 hours
   const RANGES = [
     { blocks: 2000000, label: '~5 days' },
     { blocks: 500000,  label: '~1.5 days' },
@@ -536,19 +550,40 @@ async function fetchRealizedPnl(account, provider){
       const logs = await provider.getLogs({ address:emitter, topics, fromBlock, toBlock:latestBlock });
       dbg(`PositionDecrease logs found: ${logs.length}`);
 
+      // Fetch unique block timestamps (batched)
+      const uniqueBlocks = [...new Set(logs.map(l=>l.blockNumber))];
+      const tsMap = {};
+      await Promise.all(uniqueBlocks.map(async bn => {
+        try{ const b = await provider.getBlock(bn); tsMap[bn] = b.timestamp; }catch(e){}
+      }));
+
+      let totalPnlRaw = ethers.BigNumber.from(0);
+      const trades = [];
       for(const log of logs){
-        const pnl = parseBasePnlUsd(log.data);
-        if(pnl !== null){
-          totalPnlRaw = totalPnlRaw.add(pnl);
-          tradeCount++;
-        }
+        const parsed = parsePositionDecrease(log.data);
+        if(!parsed || parsed.basePnlUsd === null) continue;
+        totalPnlRaw = totalPnlRaw.add(parsed.basePnlUsd);
+        const pnlUsd = parseFloat(ethers.utils.formatUnits(parsed.basePnlUsd, 30));
+        const sizeUsd = parsed.sizeDeltaUsd ? parseFloat(ethers.utils.formatUnits(parsed.sizeDeltaUsd, 30)) : null;
+        const mAddr = parsed.market ? parsed.market.toLowerCase() : null;
+        const sym = mAddr ? (MARKET_SYM[mAddr] || mAddr.slice(2,8).toUpperCase()) : '?';
+        trades.push({
+          blockNumber: log.blockNumber,
+          txHash:      log.transactionHash,
+          ts:          tsMap[log.blockNumber] || null,
+          market:      sym,
+          isLong:      parsed.isLong,
+          sizeUsd,
+          pnlUsd,
+        });
       }
+      // Sort newest first
+      trades.sort((a,b) => b.blockNumber - a.blockNumber);
 
       const usdValue = parseFloat(ethers.utils.formatUnits(totalPnlRaw, 30));
-      return { value: usdValue, count: tradeCount, source: label };
+      return { value: usdValue, count: trades.length, source: label, trades };
     }catch(e){
       dbg(`Realized PnL scan (${label}) failed: ${e.message.slice(0,80)}`);
-      // Try next (smaller) range
     }
   }
   return null;
@@ -688,6 +723,36 @@ function renderRealizedPnl(rpnl){
   }
 }
 
+function renderPartialCloses(rpnl){
+  const card = document.getElementById('partialCard');
+  const body = document.getElementById('partialBody');
+  const label = document.getElementById('partialLabel');
+  if(!rpnl || !rpnl.trades || !rpnl.trades.length){
+    if(card) card.style.display='none';
+    return;
+  }
+  const trades = rpnl.trades;
+  card.style.display='';
+  label.textContent = `Realized Partial Closes (${trades.length}, ${rpnl.source})`;
+  body.innerHTML = trades.map(t => {
+    const dt = t.ts ? new Date(t.ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    const pnlCls = t.pnlUsd >= 0 ? 'pos' : 'neg';
+    const pnlStr = (t.pnlUsd >= 0 ? '+' : '') + fu(t.pnlUsd, 2);
+    const sizeStr = t.sizeUsd != null ? fu(t.sizeUsd, 2) : '—';
+    const dirCls = t.isLong ? 'long-badge' : 'short-badge';
+    const dirStr = t.isLong ? 'LONG' : 'SHORT';
+    const txLink = t.txHash ? `<a href="https://arbiscan.io/tx/${t.txHash}" target="_blank" style="color:var(--muted);font-size:11px">↗</a>` : '';
+    return `<tr>
+      <td style="font-size:12px;color:var(--muted)">${dt}</td>
+      <td>${t.market}</td>
+      <td><span class="badge ${dirCls}">${dirStr}</span></td>
+      <td>${sizeStr}</td>
+      <td class="${pnlCls}">${pnlStr}</td>
+      <td>${txLink}</td>
+    </tr>`;
+  }).join('');
+}
+
 function renderChart(ps){
   const ctx=document.getElementById('chart').getContext('2d');
   if(pnlChart){pnlChart.destroy();pnlChart=null;}
@@ -805,6 +870,7 @@ async function doFetch(){
 
     renderMetrics(positions);
     renderRealizedPnl(rpnl);
+    renderPartialCloses(rpnl);
     renderChart(positions);
     renderPositions(positions,`GMX ${ver.toUpperCase()} · ${chain.charAt(0).toUpperCase()+chain.slice(1)} · ${positions.length} position${positions.length!==1?'s':''}`);
     renderOrders(orders);
@@ -827,3 +893,4 @@ async function doFetch(){
 document.getElementById('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') doFetch(); });
 </script>
 </body></html>
+
