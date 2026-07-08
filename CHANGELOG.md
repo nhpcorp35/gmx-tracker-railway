@@ -9,3 +9,18 @@
 - Table hidden when no trades in scan window (~5 days)
 
 ---
+
+
+## 2026-07-08
+
+### gmx-tracker (gmxtracker.com)
+
+**Avg entry price**
+- Added `parsePositionIncrease()` — extracts executionPrice, sizeDeltaUsd, isLong, market from EventLog1
+- Added `fetchAvgEntry()` — scans PositionIncrease events, groups by market+direction, computes volume-weighted avg entry
+- Shows "avg $X (Nx)" below entry price in positions table when position has been added to more than once
+
+**Realized PnL date range selector**
+- Dropdown in Realized PnL card: 1d / 5d / 7d / 30d / 90d / All time
+- Selecting a range re-fetches only realized PnL (no full reload) — shows "…" while loading
+- Scan block ranges map to Arbitrum block counts (~400k/block per day)
