@@ -303,12 +303,22 @@ function fundingKey(market,collToken,isLong){
 let ver='v2', chain='arbitrum', pnlChart=null, refreshTimer=null, refreshCd=0;
 let rpnlBlocks = 2000000;  // default ~5 days
 
-function setRpnlRange(sel) {
+async function setRpnlRange(sel) {
   rpnlBlocks = parseInt(sel.value);
   const label = sel.options[sel.selectedIndex].text;
   document.getElementById('rpnlRangeLabel').textContent = '(' + label + ')';
   const addr = document.getElementById('addr').value.trim();
-  if(addr && addr.startsWith('0x')) doFetch();
+  if(!addr || !addr.startsWith('0x')) return;
+  // Only re-fetch realized PnL, not full reload
+  document.getElementById('mRpnl').textContent = '…';
+  try {
+    const provider = await getProvider();
+    const rpnl = await fetchRealizedPnl(addr, provider);
+    renderRealizedPnl(rpnl);
+    renderPartialCloses(rpnl);
+  } catch(e) {
+    document.getElementById('mRpnl').textContent = '—';
+  }
 }
 let debugLines=[], showDebug=false;
 
