@@ -24,3 +24,10 @@
 - Dropdown in Realized PnL card: 1d / 5d / 7d / 30d / 90d / All time
 - Selecting a range re-fetches only realized PnL (no full reload) — shows "…" while loading
 - Scan block ranges map to Arbitrum block counts (~400k/block per day)
+
+
+### 2026-07-08 (continued)
+
+- Fixed: range dropdown now updates instantly using cached RPC provider
+- Fixed: null-safe label update in setRpnlRange
+- Fixed: renderRealizedPnl no longer overwrites the range label span
