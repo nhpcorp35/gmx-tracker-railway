@@ -112,7 +112,18 @@ footer a:hover{text-decoration:underline}
   <div class="mc"><div class="mc-label">Total size</div><div class="mc-val" id="mSize">—</div></div>
   <div class="mc"><div class="mc-label">Collateral</div><div class="mc-val" id="mColl">—</div></div>
   <div class="mc"><div class="mc-label">Unrealized PnL</div><div class="mc-val" id="mPnl">—</div></div>
-  <div class="mc"><div class="mc-label">Realized PnL</div><div class="mc-val neu" id="mRpnl">—</div></div>
+  <div class="mc">
+    <div class="mc-label">Realized PnL <span id="rpnlRangeLabel" style="font-size:10px;color:var(--muted)">(~5d)</span></div>
+    <div class="mc-val neu" id="mRpnl">—</div>
+    <div style="display:flex;gap:3px;margin-top:5px;flex-wrap:wrap">
+      <button class="range-btn" data-blocks="400000" data-label="1d" onclick="setRpnlRange(this)">1d</button>
+      <button class="range-btn active" data-blocks="2000000" data-label="~5d" onclick="setRpnlRange(this)">5d</button>
+      <button class="range-btn" data-blocks="2800000" data-label="7d" onclick="setRpnlRange(this)">7d</button>
+      <button class="range-btn" data-blocks="12000000" data-label="30d" onclick="setRpnlRange(this)">30d</button>
+      <button class="range-btn" data-blocks="36000000" data-label="90d" onclick="setRpnlRange(this)">90d</button>
+      <button class="range-btn" data-blocks="999999999" data-label="all" onclick="setRpnlRange(this)">All</button>
+    </div>
+  </div>
   <div class="mc"><div class="mc-label">Positions</div><div class="mc-val" id="mCount">—</div></div>
   <div class="mc"><div class="mc-label">Avg leverage</div><div class="mc-val" id="mLev">—</div></div>
 </div>
@@ -290,6 +301,16 @@ function fundingKey(market,collToken,isLong){
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let ver='v2', chain='arbitrum', pnlChart=null, refreshTimer=null, refreshCd=0;
+let rpnlBlocks = 2000000;  // default ~5 days
+
+function setRpnlRange(btn) {
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  rpnlBlocks = parseInt(btn.dataset.blocks);
+  document.getElementById('rpnlRangeLabel').textContent = '(' + btn.dataset.label + ')';
+  const addr = document.getElementById('addr').value.trim();
+  if(addr && addr.startsWith('0x')) track();
+}
 let debugLines=[], showDebug=false;
 
 function dbg(s){ debugLines.push(s); if(showDebug) document.getElementById('dbgbox').textContent=debugLines.join('\n'); }
@@ -608,11 +629,13 @@ async function fetchRealizedPnl(account, provider){
   try{ latestBlock = await provider.getBlockNumber(); }
   catch(e){ return null; }
 
-  const RANGES = [
-    { blocks: 2000000, label: '~5 days' },
-    { blocks: 500000,  label: '~1.5 days' },
-    { blocks: 100000,  label: '~7 hours' },
-  ];
+  const scanBlocks = typeof rpnlBlocks !== 'undefined' ? rpnlBlocks : 2000000;
+  const RANGES = scanBlocks > 10000000
+    ? [{ blocks: scanBlocks, label: document.querySelector('.range-btn.active')?.dataset?.label || 'custom' }]
+    : [
+        { blocks: scanBlocks, label: document.querySelector('.range-btn.active')?.dataset?.label || '~5 days' },
+        { blocks: Math.min(scanBlocks, 500000), label: 'fallback' },
+      ];
 
   for(const {blocks, label} of RANGES){
     try{
@@ -942,8 +965,9 @@ async function doFetch(){
 
     renderMetrics(positions);
     // Attach avg entry to each position
-    if(avgEntries && ps.length){
-      ps = ps.map(p => {
+    let enriched = positions;
+    if(avgEntries && enriched.length){
+      enriched = enriched.map(p => {
         const key = `${(p.mAddr||'').toLowerCase()}_${p.isLong}`;
         const ae = avgEntries[key];
         return ae && ae.count > 1 ? {...p, avgEntry: ae.avgPrice, avgEntryCount: ae.count} : p;
@@ -951,8 +975,8 @@ async function doFetch(){
     }
     renderRealizedPnl(rpnl);
     renderPartialCloses(rpnl);
-    renderChart(positions);
-    renderPositions(positions,`GMX ${ver.toUpperCase()} · ${chain.charAt(0).toUpperCase()+chain.slice(1)} · ${positions.length} position${positions.length!==1?'s':''}`);
+    renderChart(enriched);
+    renderPositions(enriched,`GMX ${ver.toUpperCase()} · ${chain.charAt(0).toUpperCase()+chain.slice(1)} · ${positions.length} position${positions.length!==1?'s':''}`);
     renderOrders(orders);
 
     const cdHtml=`<span class="cd">↻ <span id="countdown">5:00</span></span>`;
