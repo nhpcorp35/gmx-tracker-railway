@@ -527,6 +527,77 @@ function parsePositionDecrease(logData){
   }catch(e){ return null; }
 }
 
+function parsePositionIncrease(logData){
+  try{
+    const dec = ethers.utils.defaultAbiCoder.decode(['address','string',EVENTLOGDATA_TYPE], logData);
+    const uintItems = dec[2].uintItems.items;
+    const boolItems = dec[2].boolItems.items;
+    const addrItems = dec[2].addressItems.items;
+    const getAddr = k => (addrItems.find(i=>i[0]===k)||[])[1] || null;
+    const getUint = k => { const i=uintItems.find(x=>x[0]===k); return i?ethers.BigNumber.from(i[1].toString()):null; };
+    const getBool = k => { const i=boolItems.find(x=>x[0]===k); return i?i[1]:null; };
+    return {
+      market:       getAddr('market'),
+      executionPrice: getUint('executionPrice'),
+      sizeDeltaUsd:   getUint('sizeDeltaUsd'),
+      isLong:         getBool('isLong'),
+    };
+  }catch(e){ return null; }
+}
+
+async function fetchAvgEntry(account, provider){
+  // Returns map: { "marketAddr_isLong": { avgPrice, totalSize, count } }
+  const emitter = C[chain].EventEmitter;
+  const posIncHash = ethers.utils.id('PositionIncrease');
+  const paddedAcct = ethers.utils.hexZeroPad(account.toLowerCase(), 32);
+  const topics = [null, posIncHash, paddedAcct];
+
+  let latestBlock;
+  try{ latestBlock = await provider.getBlockNumber(); }
+  catch(e){ return {}; }
+
+  const RANGES = [
+    { blocks: 2000000, label: '~5 days' },
+    { blocks: 500000,  label: '~1.5 days' },
+  ];
+
+  for(const {blocks} of RANGES){
+    try{
+      const fromBlock = Math.max(0, latestBlock - blocks);
+      const logs = await provider.getLogs({ address:emitter, topics, fromBlock, toBlock:latestBlock });
+      dbg(`PositionIncrease logs found: ${logs.length}`);
+
+      const byPos = {};  // key: marketAddr_isLong
+      for(const log of logs){
+        const parsed = parsePositionIncrease(log.data);
+        if(!parsed || !parsed.executionPrice || !parsed.sizeDeltaUsd) continue;
+        const key = `${(parsed.market||'').toLowerCase()}_${parsed.isLong}`;
+        if(!byPos[key]) byPos[key] = { totalSize: 0, totalSizeXPrice: 0, count: 0, market: parsed.market, isLong: parsed.isLong };
+        const price = parseFloat(ethers.utils.formatUnits(parsed.executionPrice, 30));
+        const size  = parseFloat(ethers.utils.formatUnits(parsed.sizeDeltaUsd, 30));
+        byPos[key].totalSize += size;
+        byPos[key].totalSizeXPrice += size * price;
+        byPos[key].count += 1;
+      }
+
+      // Compute weighted avg
+      const result = {};
+      for(const [k, v] of Object.entries(byPos)){
+        result[k] = {
+          avgPrice: v.totalSize > 0 ? v.totalSizeXPrice / v.totalSize : 0,
+          count: v.count,
+          market: v.market,
+          isLong: v.isLong,
+        };
+      }
+      return result;
+    }catch(e){
+      dbg(`PositionIncrease scan failed: ${e.message.slice(0,80)}`);
+    }
+  }
+  return {};
+}
+
 async function fetchRealizedPnl(account, provider){
   const emitter = C[chain].EventEmitter;
   const posDecHash = ethers.utils.id('PositionDecrease');
@@ -784,7 +855,7 @@ function renderPositions(ps, label){
       <td><div class="pname">${p.market}<span class="vtag">${p.ver}</span></div><div class="psub">${lev} lev</div></td>
       <td><span class="badge ${p.isLong?'long':'short'}">${p.isLong?'LONG':'SHORT'}</span></td>
       <td>${fs(p.size)}</td><td>${fu(p.collateral,2)}</td>
-      <td>${fp(p.entry)}</td><td>${fp(p.mark)}</td>
+      <td>${fp(p.entry)}${p.avgEntry && p.avgEntryCount > 1 ? `<div style="font-size:10px;color:var(--muted)">avg ${fp(p.avgEntry)} (${p.avgEntryCount}x)</div>` : ''}</td><td>${fp(p.mark)}</td>
       <td class="${lw}">${fp(p.liq)}</td>
       <td class="${bfc}">${p.borrowFeeUsd>0.001?'-'+fu(p.borrowFeeUsd,4):'—'}</td>
       <td class="${ffc}">${Math.abs(p.fundingFeeUsd)>0.001?(p.fundingFeeUsd>0?'+':'-')+fu(Math.abs(p.fundingFeeUsd),4):'—'}</td>
@@ -859,16 +930,25 @@ async function doFetch(){
     const priceMap = Object.keys(prices).length>0?prices:FALLBACK;
     const priceNote= Object.keys(prices).length>0?'live prices':'fallback prices';
 
-    const [{raw,feeMap}, orders, rpnl] = await Promise.all([
+    const [{raw,feeMap}, orders, rpnl, avgEntries] = await Promise.all([
       ver==='v2'?fetchV2Positions(addr,provider):fetchV1Positions(addr,provider),
       ver==='v2'?fetchOrders(addr,provider):Promise.resolve([]),
       ver==='v2'?fetchRealizedPnl(addr,provider):Promise.resolve(null),
+      ver==='v2'?fetchAvgEntry(addr,provider):Promise.resolve({}),
     ]);
 
     const positions=ver==='v2'?parseV2(raw,feeMap,priceMap):parseV1(raw,priceMap);
     dbg(`Parsed: ${positions.length} positions`);
 
     renderMetrics(positions);
+    // Attach avg entry to each position
+    if(avgEntries && ps.length){
+      ps = ps.map(p => {
+        const key = `${(p.mAddr||'').toLowerCase()}_${p.isLong}`;
+        const ae = avgEntries[key];
+        return ae && ae.count > 1 ? {...p, avgEntry: ae.avgPrice, avgEntryCount: ae.count} : p;
+      });
+    }
     renderRealizedPnl(rpnl);
     renderPartialCloses(rpnl);
     renderChart(positions);
@@ -893,4 +973,5 @@ async function doFetch(){
 document.getElementById('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') doFetch(); });
 </script>
 </body></html>
+
 
