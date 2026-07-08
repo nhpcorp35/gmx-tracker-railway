@@ -300,7 +300,7 @@ function fundingKey(market,collToken,isLong){
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let ver='v2', chain='arbitrum', pnlChart=null, refreshTimer=null, refreshCd=0;
+let ver='v2', chain='arbitrum', pnlChart=null, refreshTimer=null, refreshCd=0, _cachedProvider=null, _cachedAddr=null;
 let rpnlBlocks = 2000000;  // default ~5 days
 
 async function setRpnlRange(sel) {
@@ -309,14 +309,15 @@ async function setRpnlRange(sel) {
   document.getElementById('rpnlRangeLabel').textContent = '(' + label + ')';
   const addr = document.getElementById('addr').value.trim();
   if(!addr || !addr.startsWith('0x')) return;
-  // Only re-fetch realized PnL, not full reload
   document.getElementById('mRpnl').textContent = '…';
   try {
-    const provider = await getProvider();
+    // Use cached provider if available, otherwise get a new one
+    const provider = _cachedProvider || await getProvider();
     const rpnl = await fetchRealizedPnl(addr, provider);
     renderRealizedPnl(rpnl);
     renderPartialCloses(rpnl);
   } catch(e) {
+    console.error('setRpnlRange error:', e);
     document.getElementById('mRpnl').textContent = '—';
   }
 }
@@ -958,6 +959,7 @@ async function doFetch(){
   try{
     dbg(`Address: ${addr}  Ver: ${ver}  Chain: ${chain}`);
     const provider = await getProvider();
+    _cachedProvider = provider;
     const prices   = await fetchPrices();
     const priceMap = Object.keys(prices).length>0?prices:FALLBACK;
     const priceNote= Object.keys(prices).length>0?'live prices':'fallback prices';
@@ -1006,5 +1008,6 @@ async function doFetch(){
 document.getElementById('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') doFetch(); });
 </script>
 </body></html>
+
 
 
