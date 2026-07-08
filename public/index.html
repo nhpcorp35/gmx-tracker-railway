@@ -115,7 +115,7 @@ footer a:hover{text-decoration:underline}
   <div class="mc">
     <div class="mc-label">Realized PnL <span id="rpnlRangeLabel" style="font-size:10px;color:var(--muted)">(~5d)</span></div>
     <div class="mc-val neu" id="mRpnl">—</div>
-    <div style="display:flex;gap:3px;margin-top:5px;flex-wrap:wrap">
+    <div style="display:flex;gap:3px;margin-top:4px">
       <button class="range-btn" data-blocks="400000" data-label="1d" onclick="setRpnlRange(this)">1d</button>
       <button class="range-btn active" data-blocks="2000000" data-label="~5d" onclick="setRpnlRange(this)">5d</button>
       <button class="range-btn" data-blocks="2800000" data-label="7d" onclick="setRpnlRange(this)">7d</button>
@@ -309,7 +309,7 @@ function setRpnlRange(btn) {
   rpnlBlocks = parseInt(btn.dataset.blocks);
   document.getElementById('rpnlRangeLabel').textContent = '(' + btn.dataset.label + ')';
   const addr = document.getElementById('addr').value.trim();
-  if(addr && addr.startsWith('0x')) track();
+  if(addr && addr.startsWith('0x')) doFetch();
 }
 let debugLines=[], showDebug=false;
 
