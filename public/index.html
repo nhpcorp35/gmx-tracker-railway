@@ -306,7 +306,7 @@ let rpnlBlocks = 2000000;  // default ~5 days
 async function setRpnlRange(sel) {
   rpnlBlocks = parseInt(sel.value);
   const label = sel.options[sel.selectedIndex].text;
-  document.getElementById('rpnlRangeLabel').textContent = '(' + label + ')';
+  const lbl = document.getElementById('rpnlRangeLabel'); if(lbl) lbl.textContent = '(' + label + ')';
   const addr = document.getElementById('addr').value.trim();
   if(!addr || !addr.startsWith('0x')) return;
   document.getElementById('mRpnl').textContent = '…';
@@ -823,7 +823,7 @@ function renderRealizedPnl(rpnl){
   if(rpnl.value!=null){
     el.textContent=(rpnl.value>=0?'+':'')+fu(rpnl.value,2);
     el.className='mc-val '+(rpnl.value>=0?'pos':'neg');
-    if(lbl) lbl.textContent='Realized PnL ('+rpnl.source+')';
+    // don't overwrite range label — it's managed by setRpnlRange
   }
 }
 
